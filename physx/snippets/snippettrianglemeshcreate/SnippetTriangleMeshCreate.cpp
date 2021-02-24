@@ -40,6 +40,15 @@
 
 #include "../snippetutils/SnippetUtils.h"
 
+#include "vec.h"
+#include "mesh.h"
+#include "wavefront.h"
+#include "orbiter.h"
+//
+#include "image.h"
+#include "image_io.h"
+#include "image_hdr.h"
+
 using namespace physx;
 
 PxDefaultAllocator		gAllocator;
@@ -318,27 +327,65 @@ void createTriangleMeshes()
 
 	createRandomTerrain(PxVec3(0.0f, 0.0f, 0.0f), numRows, numColumns, 1.0f, 1.0f, 1.f, vertices, indices);
 
+	const char* mesh_filename = "C:\\Users\\PC-B\\Documents\\Guillaume_ITB\\Synthese-Image\\data\\triangle.obj";
+	Mesh mesh = read_mesh(mesh_filename);
+	//if (mesh.triangle_count() == 0) {
+		// erreur de chargement, pas de triangles
+	const PxU32 numVerticesOBJ = mesh.vertex_count() ;
+	const PxU32 numTrianglesOBJ = mesh.triangle_count();
+	std::cout << "numTrianglesOBJ " << numTrianglesOBJ << std::endl;
+	std::cout << "numVerticesOBJ " << numVerticesOBJ << std::endl;
+
+	PxVec3* verticesOBJ = new PxVec3[numVerticesOBJ];
+	PxU32* indicesOBJ = new PxU32[numVerticesOBJ];
+
+
+
+	//PxU32 currentIdx = 0;
+	//for (int i = 0; i <= numVerticesOBJ; i++)
+	//{
+	//	const PxVec3 v = PxVec3(mesh.positions()[i].x, mesh.positions()[i].y, mesh.positions()[i].z);
+	//	verticesOBJ[i] = v;
+	//}
+	for (int i = 0; i < numTrianglesOBJ; i++)
+	{
+		indicesOBJ[3 * i] = PxU32(3 * i);
+		const PxVec3 va = PxVec3(mesh.triangle(i).a.x, mesh.triangle(i).a.y, mesh.triangle(i).a.z);
+		verticesOBJ[3 * i] = va;
+		indicesOBJ[3 * i + 1] = PxU32(3 * i + 1);
+		const PxVec3 vb = PxVec3(mesh.triangle(i).b.x, mesh.triangle(i).b.y, mesh.triangle(i).b.z);
+		verticesOBJ[3 * i + 1] = vb;
+		indicesOBJ[3 * i + 2] = PxU32(3 * i + 2);
+		const PxVec3 vc = PxVec3(mesh.triangle(i).c.x, mesh.triangle(i).c.y, mesh.triangle(i).c.z);
+		verticesOBJ[3 * i + 2] = vc;
+	}
+
+
+
+	//vertices = new PxVec3[numVertices];
+	//indices = new PxU32[numTriangles * 3];
+
 	// Create triangle mesh using BVH33 midphase with different settings
 	printf("-----------------------------------------------\n");
 	printf("Create triangles mesh using BVH33 midphase: \n\n");
 
 	// Favor runtime speed, cleaning the mesh and precomputing active edges. Store the mesh in a stream.
 	// These are the default settings, suitable for offline cooking.
-	createBV33TriangleMesh(numVertices,vertices,numTriangles,indices, false, false, false, false, false);
+	createBV33TriangleMesh(numVerticesOBJ,verticesOBJ,numTrianglesOBJ,indicesOBJ, false, false, false, false, false);
 
 	// Favor mesh size, cleaning the mesh and precomputing active edges. Store the mesh in a stream.
-	createBV33TriangleMesh(numVertices, vertices, numTriangles, indices, false, false, false, false, true);
+	createBV33TriangleMesh(numVerticesOBJ, verticesOBJ, numTrianglesOBJ, indicesOBJ, false, false, false, false, true);
 
 	// Favor cooking speed, skip mesh cleanup, but precompute active edges. Insert into PxPhysics.
 	// These settings are suitable for runtime cooking, although selecting fast cooking may reduce
 	// runtime performance of simulation and queries. We still need to ensure the triangles 
 	// are valid, so we perform a validation check in debug/checked builds.
-	createBV33TriangleMesh(numVertices,vertices,numTriangles,indices, true, false, true, true, false);
+	//createBV33TriangleMesh(numVerticesOBJ,verticesOBJ,numTrianglesOBJ,indicesOBJ, true, false, true, true, false);
 
 	// Favor cooking speed, skip mesh cleanup, and don't precompute the active edges. Insert into PxPhysics.
 	// This is the fastest possible solution for runtime cooking, but all edges are marked as active, which can
 	// further reduce runtime performance, and also affect behavior.
-	createBV33TriangleMesh(numVertices,vertices,numTriangles,indices, false, true, true, true, false);
+	createBV33TriangleMesh(numVerticesOBJ,verticesOBJ,numTrianglesOBJ,indicesOBJ, false, true, true, true, false);
 
 	// Create triangle mesh using BVH34 midphase with different settings
 	printf("-----------------------------------------------\n");
@@ -346,24 +393,26 @@ void createTriangleMeshes()
 
 	// Favor runtime speed, cleaning the mesh and precomputing active edges. Store the mesh in a stream.
 	// These are the default settings, suitable for offline cooking.
-	createBV34TriangleMesh(numVertices, vertices, numTriangles, indices, false, false, false, 4);
+	createBV34TriangleMesh(numVerticesOBJ, verticesOBJ, numTrianglesOBJ, indicesOBJ, false, false, false, 4);
 
 	// Favor mesh size, cleaning the mesh and precomputing active edges. Store the mesh in a stream.
-	createBV34TriangleMesh(numVertices, vertices, numTriangles, indices, false, false, false, 15);
+	createBV34TriangleMesh(numVerticesOBJ, verticesOBJ, numTrianglesOBJ, indicesOBJ, false, false, false, 15);
 
 	// Favor cooking speed, skip mesh cleanup, but precompute active edges. Insert into PxPhysics.
 	// These settings are suitable for runtime cooking, although selecting more triangles per leaf may reduce
 	// runtime performance of simulation and queries. We still need to ensure the triangles 
 	// are valid, so we perform a validation check in debug/checked builds.
-	createBV34TriangleMesh(numVertices, vertices, numTriangles, indices, true, false, true, 15);
+	//createBV34TriangleMesh(numVerticesOBJ, verticesOBJ, numTrianglesOBJ, indicesOBJ, true, false, true, 15);
 
 	// Favor cooking speed, skip mesh cleanup, and don't precompute the active edges. Insert into PxPhysics.
 	// This is the fastest possible solution for runtime cooking, but all edges are marked as active, which can
 	// further reduce runtime performance, and also affect behavior.
-	createBV34TriangleMesh(numVertices, vertices, numTriangles, indices, false, true, true, 15);
+	createBV34TriangleMesh(numVerticesOBJ, verticesOBJ, numTrianglesOBJ, indicesOBJ, false, true, true, 15);
 
 	delete [] vertices;
 	delete [] indices;
+	delete[] verticesOBJ;
+	delete[] indicesOBJ;
 }
 
 void initPhysics()

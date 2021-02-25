@@ -39,6 +39,16 @@
 #include "../snippetcommon/SnippetPVD.h"
 #include "../snippetutils/SnippetUtils.h"
 
+
+#include "vec.h"
+#include "mesh.h"
+#include "wavefront.h"
+#include "orbiter.h"
+//
+#include "image.h"
+#include "image_io.h"
+#include "image_hdr.h"
+
 using namespace physx;
 
 PxDefaultAllocator		gAllocator;
@@ -60,7 +70,7 @@ PxRigidStatic*			gActor		= NULL;
 
 PxReal stackZ = 10.0f;
 
-static const PxU32 gGridSize = 8;
+static const PxU32 gGridSize = 2;
 static const PxReal gGridStep = 512.0f / PxReal(gGridSize-1);
 static float gTime = 0.0f;
 
@@ -113,6 +123,190 @@ static void updateVertices(PxVec3* verts, float amplitude=0.0f)
 	}
 }
 
+// Setup common cooking params
+void setupCommonCookingParams(PxCookingParams& params, bool skipMeshCleanup, bool skipEdgeData)
+{
+	// we suppress the triangle mesh remap table computation to gain some speed, as we will not need it 
+// in this snippet
+	params.suppressTriangleMeshRemapTable = true;
+
+	// If DISABLE_CLEAN_MESH is set, the mesh is not cleaned during the cooking. The input mesh must be valid. 
+	// The following conditions are true for a valid triangle mesh :
+	//  1. There are no duplicate vertices(within specified vertexWeldTolerance.See PxCookingParams::meshWeldTolerance)
+	//  2. There are no large triangles(within specified PxTolerancesScale.)
+	// It is recommended to run a separate validation check in debug/checked builds, see below.
+
+	if (!skipMeshCleanup)
+		params.meshPreprocessParams &= ~static_cast<PxMeshPreprocessingFlags>(PxMeshPreprocessingFlag::eDISABLE_CLEAN_MESH);
+	else
+		params.meshPreprocessParams |= PxMeshPreprocessingFlag::eDISABLE_CLEAN_MESH;
+
+	// If DISABLE_ACTIVE_EDGES_PREDOCOMPUTE is set, the cooking does not compute the active (convex) edges, and instead 
+	// marks all edges as active. This makes cooking faster but can slow down contact generation. This flag may change 
+	// the collision behavior, as all edges of the triangle mesh will now be considered active.
+	if (!skipEdgeData)
+		params.meshPreprocessParams &= ~static_cast<PxMeshPreprocessingFlags>(PxMeshPreprocessingFlag::eDISABLE_ACTIVE_EDGES_PRECOMPUTE);
+	else
+		params.meshPreprocessParams |= PxMeshPreprocessingFlag::eDISABLE_ACTIVE_EDGES_PRECOMPUTE;
+}
+
+
+// Creates a triangle mesh using BVH33 midphase with different settings.
+static PxTriangleMesh* createBV33TriangleMesh(PxU32 numVertices, const PxVec3* vertices, PxU32 numTriangles, const PxU32* indices,
+	bool skipMeshCleanup, bool skipEdgeData, bool inserted, bool cookingPerformance, bool meshSizePerfTradeoff)
+{
+	PxU64 startTime = SnippetUtils::getCurrentTimeCounterValue();
+
+	PxTriangleMeshDesc meshDesc;
+	meshDesc.points.count = numVertices;
+	meshDesc.points.data = vertices;
+	meshDesc.points.stride = sizeof(PxVec3);
+	meshDesc.triangles.count = numTriangles;
+	meshDesc.triangles.data = indices;
+	meshDesc.triangles.stride = 3 * sizeof(PxU32);
+
+	PxCookingParams params = gCooking->getParams();
+
+	// Create BVH33 midphase
+	params.midphaseDesc = PxMeshMidPhase::eBVH33;
+
+	// setup common cooking params
+	setupCommonCookingParams(params, skipMeshCleanup, skipEdgeData);
+
+	// The COOKING_PERFORMANCE flag for BVH33 midphase enables a fast cooking path at the expense of somewhat lower quality BVH construction.	
+	if (cookingPerformance)
+		params.midphaseDesc.mBVH33Desc.meshCookingHint = PxMeshCookingHint::eCOOKING_PERFORMANCE;
+	else
+		params.midphaseDesc.mBVH33Desc.meshCookingHint = PxMeshCookingHint::eSIM_PERFORMANCE;
+
+	// If meshSizePerfTradeoff is set to true, smaller mesh cooked mesh is produced. The mesh size/performance trade-off
+	// is controlled by setting the meshSizePerformanceTradeOff from 0.0f (smaller mesh) to 1.0f (larger mesh).
+	if (meshSizePerfTradeoff)
+	{
+		params.midphaseDesc.mBVH33Desc.meshSizePerformanceTradeOff = 0.0f;
+	}
+	else
+	{
+		// using the default value
+		params.midphaseDesc.mBVH33Desc.meshSizePerformanceTradeOff = 0.55f;
+	}
+
+	gCooking->setParams(params);
+
+	PX_ASSERT(gCooking->validateTriangleMesh(meshDesc));
+
+
+	PxTriangleMesh* triMesh = NULL;
+	PxU32 meshSize = 0;
+
+	// The cooked mesh may either be saved to a stream for later loading, or inserted directly into PxPhysics.
+	if (inserted)
+	{
+		triMesh = gCooking->createTriangleMesh(meshDesc, gPhysics->getPhysicsInsertionCallback());
+	}
+	else
+	{
+		PxDefaultMemoryOutputStream outBuffer;
+		gCooking->cookTriangleMesh(meshDesc, outBuffer);
+
+		PxDefaultMemoryInputData stream(outBuffer.getData(), outBuffer.getSize());
+		triMesh = gPhysics->createTriangleMesh(stream);
+
+		meshSize = outBuffer.getSize();
+	}
+
+
+	// Print the elapsed time for comparison
+	PxU64 stopTime = SnippetUtils::getCurrentTimeCounterValue();
+	float elapsedTime = SnippetUtils::getElapsedTimeInMilliseconds(stopTime - startTime);
+	printf("\t -----------------------------------------------\n");
+	printf("\t Create triangle mesh with %d triangles: \n", numTriangles);
+	cookingPerformance ? printf("\t\t Cooking performance on\n") : printf("\t\t Cooking performance off\n");
+	inserted ? printf("\t\t Mesh inserted on\n") : printf("\t\t Mesh inserted off\n");
+	!skipEdgeData ? printf("\t\t Precompute edge data on\n") : printf("\t\t Precompute edge data off\n");
+	!skipMeshCleanup ? printf("\t\t Mesh cleanup on\n") : printf("\t\t Mesh cleanup off\n");
+	printf("\t\t Mesh size/performance trade-off: %f \n", double(params.midphaseDesc.mBVH33Desc.meshSizePerformanceTradeOff));
+	printf("\t Elapsed time in ms: %f \n", double(elapsedTime));
+	if (!inserted)
+	{
+		printf("\t Mesh size: %d \n", meshSize);
+	}
+
+	return(triMesh);
+	//triMesh->release();
+}
+
+
+// Creates a triangle mesh using BVH34 midphase with different settings.
+static PxTriangleMesh* createBV34TriangleMesh(PxU32 numVertices, const PxVec3* vertices, PxU32 numTriangles, const PxU32* indices,
+	bool skipMeshCleanup, bool skipEdgeData, bool inserted, const PxU32 numTrisPerLeaf)
+{
+	PxU64 startTime = SnippetUtils::getCurrentTimeCounterValue();
+
+	PxTriangleMeshDesc meshDesc;
+	meshDesc.points.count = numVertices;
+	meshDesc.points.data = vertices;
+	meshDesc.points.stride = sizeof(PxVec3);
+	meshDesc.triangles.count = numTriangles;
+	meshDesc.triangles.data = indices;
+	meshDesc.triangles.stride = 3 * sizeof(PxU32);
+
+	PxCookingParams params = gCooking->getParams();
+
+	// Create BVH34 midphase
+	params.midphaseDesc = PxMeshMidPhase::eBVH34;
+
+	// setup common cooking params
+	setupCommonCookingParams(params, skipMeshCleanup, skipEdgeData);
+
+	// Cooking mesh with less triangles per leaf produces larger meshes with better runtime performance
+	// and worse cooking performance. Cooking time is better when more triangles per leaf are used.
+	params.midphaseDesc.mBVH34Desc.numPrimsPerLeaf = numTrisPerLeaf;
+
+	gCooking->setParams(params);
+
+	PX_ASSERT(gCooking->validateTriangleMesh(meshDesc));
+
+	PxTriangleMesh* triMesh = NULL;
+	PxU32 meshSize = 0;
+
+	// The cooked mesh may either be saved to a stream for later loading, or inserted directly into PxPhysics.
+	//if (inserted)
+	//{
+	//triMesh = gCooking->createTriangleMesh(meshDesc, gPhysics->getPhysicsInsertionCallback());
+	//}
+	//else
+	//{
+	PxDefaultMemoryOutputStream outBuffer;
+	gCooking->cookTriangleMesh(meshDesc, outBuffer);
+
+	PxDefaultMemoryInputData stream(outBuffer.getData(), outBuffer.getSize());
+	triMesh = gPhysics->createTriangleMesh(stream);
+
+	meshSize = outBuffer.getSize();
+	//}
+
+	// Print the elapsed time for comparison
+	PxU64 stopTime = SnippetUtils::getCurrentTimeCounterValue();
+	float elapsedTime = SnippetUtils::getElapsedTimeInMilliseconds(stopTime - startTime);
+	printf("\t -----------------------------------------------\n");
+	printf("\t Create triangle mesh with %d triangles: \n", numTriangles);
+	inserted ? printf("\t\t Mesh inserted on\n") : printf("\t\t Mesh inserted off\n");
+	!skipEdgeData ? printf("\t\t Precompute edge data on\n") : printf("\t\t Precompute edge data off\n");
+	!skipMeshCleanup ? printf("\t\t Mesh cleanup on\n") : printf("\t\t Mesh cleanup off\n");
+	printf("\t\t Num triangles per leaf: %d \n", numTrisPerLeaf);
+	printf("\t Elapsed time in ms: %f \n", double(elapsedTime));
+	if (!inserted)
+	{
+		printf("\t Mesh size: %d \n", meshSize);
+	}
+
+	return(triMesh);
+
+	//triMesh->release();
+}
+
+
 static PxTriangleMesh* createMeshGround()
 {
 	const PxU32 gridSize = gGridSize;
@@ -129,6 +323,8 @@ static PxTriangleMesh* createMeshGround()
 	{
 		for (PxU32 b = 0; b < (gridSize-1); ++b)
 		{
+
+
 			Triangle& tri0 = indices[(a * (gridSize-1) + b) * 2];
 			Triangle& tri1 = indices[((a * (gridSize-1) + b) * 2) + 1];
 
@@ -139,7 +335,25 @@ static PxTriangleMesh* createMeshGround()
 			tri1.ind0 = (a + 1) * gridSize + b + 1;
 			tri1.ind1 = a * gridSize + b;
 			tri1.ind2 = (a + 1) * gridSize + b;
+
 		}
+	}
+
+	for (PxU32 i = 0; i < nbTriangles; i++)
+	{
+		//std::cout << meshOBJ.triangle(i).a.x << " " << meshOBJ.triangle(i).a.y << " " << meshOBJ.triangle(i).a.z << std::endl;
+		//std::cout << va.x << " " << va.y << " " << va.z << std::endl;
+		std::cout << "true indice tri 1 : " << indices[i].ind0 << std::endl;
+		std::cout << "true indice tri 2 : " << indices[i].ind1 << std::endl;
+		std::cout << "true indice tri 3 : " << indices[i].ind2 << std::endl;
+	}
+
+	for (PxU32 i = 0; i < gridSize * gridSize; i++)
+	{
+		//std::cout << meshOBJ.triangle(i).a.x << " " << meshOBJ.triangle(i).a.y << " " << meshOBJ.triangle(i).a.z << std::endl;
+		//std::cout << va.x << " " << va.y << " " << va.z << std::endl;
+		std::cout << "true vert : " << verts[i].x << " " << verts[i].y << " " << verts[i].z << std::endl;
+
 	}
 
 	PxTriangleMeshDesc meshDesc;
@@ -149,6 +363,10 @@ static PxTriangleMesh* createMeshGround()
 	meshDesc.triangles.count = nbTriangles;
 	meshDesc.triangles.data = indices;
 	meshDesc.triangles.stride = sizeof(Triangle);
+
+
+	PX_ASSERT(gCooking->validateTriangleMesh(meshDesc));
+
 
 	PxTriangleMesh* triMesh = gCooking->createTriangleMesh(meshDesc, gPhysics->getPhysicsInsertionCallback());
 
@@ -192,7 +410,74 @@ void initPhysics(bool /*interactive*/)
 
 	gMaterial = gPhysics->createMaterial(0.5f, 0.5f, 0.6f);
 
-	PxTriangleMesh* mesh = createMeshGround();
+
+	const char* mesh_filename = "C:\\Users\\PC-B\\Documents\\Guillaume_ITB\\Synthese-Image\\data\\triangle.obj";
+	Mesh meshOBJ = read_mesh(mesh_filename);
+	//if (mesh.triangle_count() == 0) {
+		// erreur de chargement, pas de triangles
+	const PxU32 numVerticesOBJ = PxU32(meshOBJ.vertex_count());
+	const PxU32 numTrianglesOBJ = PxU32(meshOBJ.triangle_count());
+	std::cout << "numTrianglesOBJ " << numTrianglesOBJ << std::endl;
+	std::cout << "numVerticesOBJ " << numVerticesOBJ << std::endl;
+
+	PxVec3* verticesOBJ = new PxVec3[numVerticesOBJ];
+	PxU32* indicesOBJ = new PxU32[numVerticesOBJ];
+
+	//PxU32 currentIdx = 0;
+	//for (int i = 0; i <= numVerticesOBJ; i++)
+	//{
+	//	const PxVec3 v = PxVec3(mesh.positions()[i].x, mesh.positions()[i].y, mesh.positions()[i].z);
+	//	verticesOBJ[i] = v;
+	//}
+
+	for (int i = 0; i < numTrianglesOBJ; i++)
+	{
+
+
+		indicesOBJ[3 * i] = PxU32(3 * i);
+		const PxVec3 va = PxVec3(meshOBJ.triangle(i).a.x, meshOBJ.triangle(i).a.y, meshOBJ.triangle(i).a.z);
+		std::cout << meshOBJ.triangle(i).a.x << " " << meshOBJ.triangle(i).a.y << " " << meshOBJ.triangle(i).a.z << std::endl;
+		std::cout << va.x << " " << va.y << " " << va.z << std::endl;
+		std::cout << "indice tri 1 : " << indicesOBJ[3 * i] << std::endl;
+		verticesOBJ[3 * i] = va;
+		indicesOBJ[3 * i + 1] = PxU32(3 * i + 1);
+		const PxVec3 vb = PxVec3(meshOBJ.triangle(i).b.x, meshOBJ.triangle(i).b.y, meshOBJ.triangle(i).b.z);
+		std::cout << meshOBJ.triangle(i).b.x << " " << meshOBJ.triangle(i).b.y << " " << meshOBJ.triangle(i).b.z << std::endl;
+		std::cout << vb.x << " " << vb.y << " " << vb.z << std::endl;
+		std::cout << "indice tri 2 : " << indicesOBJ[3 * i + 1] << std::endl;
+		verticesOBJ[3 * i + 1] = vb;
+		indicesOBJ[3 * i + 2] = PxU32(3 * i + 2);
+		const PxVec3 vc = PxVec3(meshOBJ.triangle(i).c.x, meshOBJ.triangle(i).c.y, meshOBJ.triangle(i).c.z);
+		std::cout << meshOBJ.triangle(i).c.x << " " << meshOBJ.triangle(i).c.y << " " << meshOBJ.triangle(i).c.z << std::endl;
+		std::cout << vc.x << " " << vc.y << " " << vc.z << std::endl;
+		std::cout << "indice tri 3 : " << indicesOBJ[3 * i + 2] << std::endl;
+		verticesOBJ[3 * i + 2] = vc;
+	}
+
+
+	//const PxVec3 v1 = PxVec3(-400, 20, -400);
+	//const PxVec3 v2 = PxVec3(112, 20, -400);
+	//const PxVec3 v3 = PxVec3(-400, 20, 112);
+	//const PxVec3 v4 = PxVec3(112, 20, 112);
+
+
+	//verticesOBJ[PxU32(0)] = v1;
+	//verticesOBJ[PxU32(1)] = v2;
+	//verticesOBJ[PxU32(2)] = v3;
+	//verticesOBJ[PxU32(3)] = v4;
+
+	//indicesOBJ[PxU32(0)] = PxU32(1);
+	//indicesOBJ[PxU32(1)] = PxU32(0);
+	//indicesOBJ[PxU32(2)] = PxU32(3);
+	//indicesOBJ[PxU32(3)] = PxU32(3);
+	//indicesOBJ[PxU32(4)] = PxU32(0);
+	//indicesOBJ[PxU32(5)] = PxU32(2);
+
+
+	//PxTriangleMesh* mesh = createMeshGround();
+
+	PxTriangleMesh* mesh = createBV33TriangleMesh(numVerticesOBJ, verticesOBJ, numTrianglesOBJ, indicesOBJ, false, false, false, false, false);
+
 	gMesh = mesh;
 
 	PxTriangleMeshGeometry geom(mesh);

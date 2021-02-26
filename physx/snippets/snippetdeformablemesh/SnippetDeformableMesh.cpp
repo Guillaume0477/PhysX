@@ -65,8 +65,8 @@ PxMaterial*				gMaterial	= NULL;
 
 PxPvd*                  gPvd        = NULL;
 
-PxTriangleMesh*			gMesh		= NULL;
-PxRigidStatic*			gActor		= NULL;
+PxConvexMesh*			gMesh		= NULL;
+PxRigidDynamic*			gActor		= NULL;
 
 PxReal stackZ = 10.0f;
 
@@ -304,6 +304,77 @@ static PxTriangleMesh* createMeshGround()
 	return triMesh;
 }
 
+
+template<PxConvexMeshCookingType::Enum convexMeshCookingType, bool directInsertion, PxU32 gaussMapLimit>
+static PxConvexMesh* createRandomConvex(PxU32 numVerts, const PxVec3* verts)
+{
+	PxCookingParams params = gCooking->getParams();
+
+	// Use the new (default) PxConvexMeshCookingType::eQUICKHULL
+	params.convexMeshCookingType = convexMeshCookingType;
+
+	// If the gaussMapLimit is chosen higher than the number of output vertices, no gauss map is added to the convex mesh data (here 256).
+	// If the gaussMapLimit is chosen lower than the number of output vertices, a gauss map is added to the convex mesh data (here 16).
+	params.gaussMapLimit = gaussMapLimit;
+	gCooking->setParams(params);
+
+	// Setup the convex mesh descriptor
+	PxConvexMeshDesc desc;
+
+	// We provide points only, therefore the PxConvexFlag::eCOMPUTE_CONVEX flag must be specified
+	desc.points.data = verts;
+	desc.points.count = numVerts;
+	desc.points.stride = sizeof(PxVec3);
+	desc.flags = PxConvexFlag::eCOMPUTE_CONVEX;
+
+	PxU32 meshSize = 0;
+	PxConvexMesh* convex = NULL;
+
+	PxU64 startTime = SnippetUtils::getCurrentTimeCounterValue();
+
+	if (directInsertion)
+	{
+		// Directly insert mesh into PhysX
+		convex = gCooking->createConvexMesh(desc, gPhysics->getPhysicsInsertionCallback());
+		PX_ASSERT(convex);
+	}
+	else
+	{
+		// Serialize the cooked mesh into a stream.
+		PxDefaultMemoryOutputStream outStream;
+		bool res = gCooking->cookConvexMesh(desc, outStream);
+		PX_UNUSED(res);
+		PX_ASSERT(res);
+		meshSize = outStream.getSize();
+
+		// Create the mesh from a stream.
+		PxDefaultMemoryInputData inStream(outStream.getData(), outStream.getSize());
+		convex = gPhysics->createConvexMesh(inStream);
+
+		
+		PX_ASSERT(convex);
+	}
+
+	// Print the elapsed time for comparison
+	PxU64 stopTime = SnippetUtils::getCurrentTimeCounterValue();
+	float elapsedTime = SnippetUtils::getElapsedTimeInMilliseconds(stopTime - startTime);
+	printf("\t -----------------------------------------------\n");
+	printf("\t Create convex mesh with %d triangles: \n", numVerts);
+	directInsertion ? printf("\t\t Direct mesh insertion enabled\n") : printf("\t\t Direct mesh insertion disabled\n");
+	printf("\t\t Gauss map limit: %d \n", gaussMapLimit);
+	printf("\t\t Created hull number of vertices: %d \n", convex->getNbVertices());
+	printf("\t\t Created hull number of polygons: %d \n", convex->getNbPolygons());
+	printf("\t Elapsed time in ms: %f \n", double(elapsedTime));
+	if (!directInsertion)
+	{
+		printf("\t Mesh size: %d \n", meshSize);
+	}
+
+	return (convex);
+
+	//convex->release();
+}
+
 void initPhysics(bool /*interactive*/)
 {
 	gFoundation = PxCreateFoundation(PX_PHYSICS_VERSION, gAllocator, gErrorCallback);
@@ -342,13 +413,13 @@ void initPhysics(bool /*interactive*/)
 	gMaterial = gPhysics->createMaterial(0.5f, 0.5f, 0.6f);
 
 
-	const char* mesh_filename = "C:\\Users\\PC-B\\Documents\\Guillaume_ITB\\Synthese-Image\\data\\robot.obj";
+	const char* mesh_filename = "C:\\Users\\PC-B\\Documents\\Guillaume_ITB\\Synthese-Image\\data\\cube.obj";
 	Mesh meshOBJ = read_mesh(mesh_filename);
 	//if (mesh.triangle_count() == 0) {
 		// erreur de chargement, pas de triangles
 	const PxU32 numVerticesOBJ = PxU32(meshOBJ.vertex_count());
 	const PxU32 numTrianglesOBJ = PxU32(meshOBJ.triangle_count());
-	std::cout << "numTrianglesOBJ " << numVerticesOBJ << std::endl;
+	std::cout << "numTrianglesOBJ " << numTrianglesOBJ << std::endl;
 	std::cout << "numVerticesOBJ " << numVerticesOBJ << std::endl;
 
 
@@ -360,119 +431,108 @@ void initPhysics(bool /*interactive*/)
 	PxU32* indicesOBJ = new PxU32[numIndiceOBJ2];
 
 	//PxU32 currentIdx = 0;
-	//for (int i = 0; i <= numVerticesOBJ; i++)
-	//{
-	//	const PxVec3 v = PxVec3(mesh.positions()[i].x, mesh.positions()[i].y, mesh.positions()[i].z);
-	//	verticesOBJ[i] = v;
-	//}
-
-	for (int i = 0; i < numTrianglesOBJ; i++)
+	for (int i = 0; i <= numVerticesOBJ-1; i++)
 	{
-
-
-		indicesOBJ[3 * i] = PxU32(3 * i);
-		const PxVec3 va = PxVec3(meshOBJ.triangle(i).a.x, meshOBJ.triangle(i).a.y, meshOBJ.triangle(i).a.z);
-		std::cout << meshOBJ.triangle(i).a.x << " " << meshOBJ.triangle(i).a.y << " " << meshOBJ.triangle(i).a.z << std::endl;
-		std::cout << va.x << " " << va.y << " " << va.z << std::endl;
-		std::cout << "indice tri 1 : " << indicesOBJ[3 * i] << std::endl;
-		verticesOBJ[3 * i] = va;
-		indicesOBJ[3 * i + 1] = PxU32(3 * i + 1);
-		const PxVec3 vb = PxVec3(meshOBJ.triangle(i).b.x, meshOBJ.triangle(i).b.y, meshOBJ.triangle(i).b.z);
-		std::cout << meshOBJ.triangle(i).b.x << " " << meshOBJ.triangle(i).b.y << " " << meshOBJ.triangle(i).b.z << std::endl;
-		std::cout << vb.x << " " << vb.y << " " << vb.z << std::endl;
-		std::cout << "indice tri 2 : " << indicesOBJ[3 * i + 1] << std::endl;
-		verticesOBJ[3 * i + 1] = vb;
-		indicesOBJ[3 * i + 2] = PxU32(3 * i + 2);
-		const PxVec3 vc = PxVec3(meshOBJ.triangle(i).c.x, meshOBJ.triangle(i).c.y, meshOBJ.triangle(i).c.z);
-		std::cout << meshOBJ.triangle(i).c.x << " " << meshOBJ.triangle(i).c.y << " " << meshOBJ.triangle(i).c.z << std::endl;
-		std::cout << vc.x << " " << vc.y << " " << vc.z << std::endl;
-		std::cout << "indice tri 3 : " << indicesOBJ[3 * i + 2] << std::endl;
-		verticesOBJ[3 * i + 2] = vc;
+		const PxVec3 v = PxVec3(meshOBJ.positions()[i].x, meshOBJ.positions()[i].y, meshOBJ.positions()[i].z);
+		verticesOBJ[i] = v;
 	}
 
-
-	//const PxVec3 v1 = PxVec3(-0.5, -0.5, 0.5);
-	//const PxVec3 v2 = PxVec3(-0.5, 0.5, 0.5);
-	//const PxVec3 v3 = PxVec3(0.5, 0.5, 0.5);
-	//const PxVec3 v4 = PxVec3(0.5, -0.5, 0.5);
+	//for (int i = 0; i < numTrianglesOBJ; i++)
+	//{
 
 
-	//verticesOBJ[PxU32(0)] = v1;
-	//verticesOBJ[PxU32(1)] = v2;
-	//verticesOBJ[PxU32(2)] = v3;
-	//verticesOBJ[PxU32(3)] = v4;
+	//	indicesOBJ[3 * i] = PxU32(3 * i);
+	//	const PxVec3 va = PxVec3(meshOBJ.triangle(i).a.x, meshOBJ.triangle(i).a.y, meshOBJ.triangle(i).a.z);
+	//	std::cout << meshOBJ.triangle(i).a.x << " " << meshOBJ.triangle(i).a.y << " " << meshOBJ.triangle(i).a.z << std::endl;
+	//	std::cout << va.x << " " << va.y << " " << va.z << std::endl;
+	//	std::cout << "indice tri 1 : " << indicesOBJ[3 * i] << std::endl;
+	//	verticesOBJ[3 * i] = va;
+	//	indicesOBJ[3 * i + 1] = PxU32(3 * i + 1);
+	//	const PxVec3 vb = PxVec3(meshOBJ.triangle(i).b.x, meshOBJ.triangle(i).b.y, meshOBJ.triangle(i).b.z);
+	//	std::cout << meshOBJ.triangle(i).b.x << " " << meshOBJ.triangle(i).b.y << " " << meshOBJ.triangle(i).b.z << std::endl;
+	//	std::cout << vb.x << " " << vb.y << " " << vb.z << std::endl;
+	//	std::cout << "indice tri 2 : " << indicesOBJ[3 * i + 1] << std::endl;
+	//	verticesOBJ[3 * i + 1] = vb;
+	//	indicesOBJ[3 * i + 2] = PxU32(3 * i + 2);
+	//	const PxVec3 vc = PxVec3(meshOBJ.triangle(i).c.x, meshOBJ.triangle(i).c.y, meshOBJ.triangle(i).c.z);
+	//	std::cout << meshOBJ.triangle(i).c.x << " " << meshOBJ.triangle(i).c.y << " " << meshOBJ.triangle(i).c.z << std::endl;
+	//	std::cout << vc.x << " " << vc.y << " " << vc.z << std::endl;
+	//	std::cout << "indice tri 3 : " << indicesOBJ[3 * i + 2] << std::endl;
+	//	verticesOBJ[3 * i + 2] = vc;
+	//}
 
+	//static const PxVec3 convexVerts[] = { PxVec3(0,1,0),PxVec3(1,0,0),PxVec3(-1,0,0),PxVec3(0,0,1),PxVec3(0,0,-1) };
 
-	//indicesOBJ[PxU32(0)] = PxU32(2);
-	//indicesOBJ[PxU32(1)] = PxU32(3);
-	//indicesOBJ[PxU32(2)] = PxU32(0);
-	//indicesOBJ[PxU32(3)] = PxU32(2);
-	//indicesOBJ[PxU32(4)] = PxU32(0);
-	//indicesOBJ[PxU32(5)] = PxU32(1);
+	//PxConvexMeshDesc convexDesc;
+	//convexDesc.points.count = 5;
+	//convexDesc.points.stride = sizeof(PxVec3);
+	//convexDesc.points.data = convexVerts;
+	//convexDesc.flags = PxConvexFlag::eCOMPUTE_CONVEX;
 
-
-	//const PxVec3 v1 = PxVec3(-0.5, -0.5, 0.5);
-	//const PxVec3 v2 = PxVec3(-0.5, -0.5, -0.5);
-	//const PxVec3 v3 = PxVec3(0.5, -0.5, -0.5);
-	//const PxVec3 v4 = PxVec3(-0.5, -0.5, 0.5);
-	//const PxVec3 v5 = PxVec3(0.5, -0.5, -0.5);
-	//const PxVec3 v6 = PxVec3(0.5, -0.5, 0.5);
-
-	//verticesOBJ[PxU32(0)] = v1;
-	//verticesOBJ[PxU32(1)] = v2;
-	//verticesOBJ[PxU32(2)] = v3;
-	//verticesOBJ[PxU32(3)] = v4;
-	//verticesOBJ[PxU32(4)] = v5;
-	//verticesOBJ[PxU32(5)] = v6;
-
-	//verticesOBJ[PxU32(0)] = PxVec3(0.5, 0.5, -0.5);
-	//verticesOBJ[PxU32(1)] = PxVec3(-0.5, 0.5, 0.5);
-	//verticesOBJ[PxU32(2)] = PxVec3(0.5, 0.5, 0.5);
-	//verticesOBJ[PxU32(3)] = PxVec3(0.5, 0.5, -0.5);
-	//verticesOBJ[PxU32(4)] = PxVec3(-0.5, -0.5, -0.5);
-	//verticesOBJ[PxU32(5)] = PxVec3(-0.5, -0.5, 0.5);
-	//verticesOBJ[PxU32(6)] = PxVec3(0.5, -0.5, 0.5);
-	//verticesOBJ[PxU32(7)] = PxVec3(0.5, -0.5, -0.5);
-
-
-
-	////indicesOBJ[PxU32(0)] = PxU32(0);
-	////indicesOBJ[PxU32(1)] = PxU32(1);
-	////indicesOBJ[PxU32(2)] = PxU32(2);
-	////indicesOBJ[PxU32(3)] = PxU32(3);
-	////indicesOBJ[PxU32(4)] = PxU32(4);
-	////indicesOBJ[PxU32(5)] = PxU32(5);
-
-	//indicesOBJ[PxU32(0)] = PxU32(7);
-	//indicesOBJ[PxU32(1)] = PxU32(6);
-	//indicesOBJ[PxU32(2)] = PxU32(5);
-	//indicesOBJ[PxU32(3)] = PxU32(7);
-	//indicesOBJ[PxU32(4)] = PxU32(5);
-	//indicesOBJ[PxU32(5)] = PxU32(4);
-
-	//indicesOBJ[PxU32(6)] = PxU32(7);
-	//indicesOBJ[PxU32(7)] = PxU32(3);
-	//indicesOBJ[PxU32(8)] = PxU32(2);
-	//indicesOBJ[PxU32(9)] = PxU32(7);
-	//indicesOBJ[PxU32(10)] = PxU32(2);
-	//indicesOBJ[PxU32(11)] = PxU32(6);
-
-	//indicesOBJ[PxU32(12)] = PxU32(5);
-	//indicesOBJ[PxU32(13)] = PxU32(1);
-	//indicesOBJ[PxU32(14)] = PxU32(0);
-	//indicesOBJ[PxU32(15)] = PxU32(5);
-	//indicesOBJ[PxU32(16)] = PxU32(0);
-	//indicesOBJ[PxU32(17)] = PxU32(4);
+	//PxDefaultMemoryOutputStream buf;
+	//PxConvexMeshCookingResult::Enum result;
+	//if (!gCooking.cookConvexMesh(convexDesc, buf, &result))
+	//	return NULL;
+	//PxDefaultMemoryInputData input(buf.getData(), buf.getSize());
+	//PxConvexMesh* convexMesh = gPhysics->createConvexMesh(input);
 
 	//PxTriangleMesh* mesh = createMeshGround();
 
-	PxTriangleMesh* mesh = createBV33TriangleMesh(numVerticesOBJ2, verticesOBJ, numTrianglesOBJ2, indicesOBJ, false, false, false, false, false);
+	//PxTriangleMesh* mesh = createBV33TriangleMesh(numVerticesOBJ2, verticesOBJ, numTrianglesOBJ2, indicesOBJ, false, false, false, false, false);
 
-	gMesh = mesh;
+	//const PxU32 numVertspira = 5;
+	//const PxU32 numVertcube = 8;
 
-	PxTriangleMeshGeometry geom(mesh);
+	//PxVec3* vertices = new PxVec3[numVertcube];
 
-	PxRigidStatic* groundMesh = gPhysics->createRigidStatic(PxTransform(PxVec3(0, 2, 0)));
+
+	//static const PxVec3 verticespira[] = { PxVec3(0,1,0), PxVec3(1,0,0), PxVec3(-1,0,0), PxVec3(0,0,1), PxVec3(0,0,-1) };
+
+	//static const PxVec3 verticescube[] = { PxVec3(-0.5, 0.5, - 0.5)
+	//	,PxVec3(-0.5, 0.5, 0.5)
+	//	,PxVec3(0.5, 0.5,0.5)
+	//	,PxVec3(0.5, 0.5, -0.5)
+	//	,PxVec3(-0.5, -0.5, -0.5)
+	//	,PxVec3(-0.5, -0.5, 0.5)
+	//	,PxVec3(0.5, -0.5, 0.5)
+	//	,PxVec3(0.5, -0.5, -0.5) };
+
+	//// Prepare random verts
+	////for (PxU32 i = 0; i < numVerts; i++)
+	////{
+	////	vertices[i] = vertices2[i];
+	////}
+
+	//for (PxU32 i = 0; i < numVertcube; i++)
+	//{
+	//	vertices[i] = verticescube[i];
+	//}
+
+
+
+	const PxU32 numVerts = 8;
+	PxVec3* vertices = new PxVec3[numVerts];
+
+
+	//static const PxVec3 verticescube[] = { PxVec3(0,1,0), PxVec3(1,0,0), PxVec3(-1,0,0), PxVec3(0,0,1), PxVec3(0,0,-1) };
+	static const PxVec3 verticescube[] = { PxVec3(-0.5, 0.5, -0.5),PxVec3(-0.5, 0.5, 0.5),PxVec3(0.5, 0.5,0.5),PxVec3(0.5, 0.5, -0.5),PxVec3(-0.5, -0.5, -0.5),PxVec3(-0.5, -0.5, 0.5),PxVec3(0.5, -0.5, 0.5),PxVec3(0.5, -0.5, -0.5) };
+
+	// Prepare random verts
+	for (PxU32 i = 0; i < numVerts; i++)
+	{
+		vertices[i] = verticescube[i];
+	}
+
+	// The default convex mesh creation without the additional gauss map data.
+	PxConvexMesh* convexMesh = createRandomConvex<PxConvexMeshCookingType::eQUICKHULL, false, 256>(numVerts, vertices);
+
+
+
+	gMesh = convexMesh;
+
+	PxConvexMeshGeometry geom(convexMesh);
+
+	PxRigidDynamic* groundMesh = gPhysics->createRigidDynamic(PxTransform(PxVec3(0, 2, 0)));
 	gActor = groundMesh;
 	PxShape* shape = gPhysics->createShape(geom, *gMaterial);
 
@@ -492,11 +552,11 @@ void stepPhysics(bool /*interactive*/)
 {
 	{
 		std::cout << "STEP : " << std::endl;
-		PxVec3* verts = gMesh->getVerticesForModification();
+		//PxVec3* verts = gMesh->getVerticesForModification();
 		gTime += 0.01f;
-		updateVertices(verts, sinf(gTime)*20.0f);
-		PxBounds3 newBounds = gMesh->refitBVH();
-		PX_UNUSED(newBounds);
+		//updateVertices(verts, sinf(gTime)*20.0f);
+		//PxBounds3 newBounds = gMesh->refitBVH();
+		//PX_UNUSED(newBounds);
 
 		// Reset filtering to tell the broadphase about the new mesh bounds.
 		gScene->resetFiltering(*gActor);

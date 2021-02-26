@@ -66,7 +66,7 @@ PxMaterial*				gMaterial	= NULL;
 PxPvd*                  gPvd        = NULL;
 
 PxConvexMesh*			gMesh		= NULL;
-PxRigidDynamic*			gActor		= NULL;
+PxRigidStatic*			gActor		= NULL;
 
 PxReal stackZ = 10.0f;
 
@@ -82,9 +82,122 @@ static PxRigidDynamic* createDynamic(const PxTransform& t, const PxGeometry& geo
 	return dynamic;
 }
 
+
+
+template<PxConvexMeshCookingType::Enum convexMeshCookingType, bool directInsertion, PxU32 gaussMapLimit>
+static PxConvexMesh* createRandomConvex(PxU32 numVerts, const PxVec3* verts)
+{
+	PxCookingParams params = gCooking->getParams();
+
+	// Use the new (default) PxConvexMeshCookingType::eQUICKHULL
+	params.convexMeshCookingType = convexMeshCookingType;
+
+	// If the gaussMapLimit is chosen higher than the number of output vertices, no gauss map is added to the convex mesh data (here 256).
+	// If the gaussMapLimit is chosen lower than the number of output vertices, a gauss map is added to the convex mesh data (here 16).
+	params.gaussMapLimit = gaussMapLimit;
+	gCooking->setParams(params);
+
+	// Setup the convex mesh descriptor
+	PxConvexMeshDesc desc;
+
+	// We provide points only, therefore the PxConvexFlag::eCOMPUTE_CONVEX flag must be specified
+	desc.points.data = verts;
+	desc.points.count = numVerts;
+	desc.points.stride = sizeof(PxVec3);
+	desc.flags = PxConvexFlag::eCOMPUTE_CONVEX;
+
+	PxU32 meshSize = 0;
+	PxConvexMesh* convex = NULL;
+
+	PxU64 startTime = SnippetUtils::getCurrentTimeCounterValue();
+
+	if (directInsertion)
+	{
+		// Directly insert mesh into PhysX
+		convex = gCooking->createConvexMesh(desc, gPhysics->getPhysicsInsertionCallback());
+		PX_ASSERT(convex);
+	}
+	else
+	{
+		// Serialize the cooked mesh into a stream.
+		PxDefaultMemoryOutputStream outStream;
+		bool res = gCooking->cookConvexMesh(desc, outStream);
+		PX_UNUSED(res);
+		PX_ASSERT(res);
+		meshSize = outStream.getSize();
+
+		// Create the mesh from a stream.
+		PxDefaultMemoryInputData inStream(outStream.getData(), outStream.getSize());
+		convex = gPhysics->createConvexMesh(inStream);
+
+
+		PX_ASSERT(convex);
+	}
+
+	// Print the elapsed time for comparison
+	PxU64 stopTime = SnippetUtils::getCurrentTimeCounterValue();
+	float elapsedTime = SnippetUtils::getElapsedTimeInMilliseconds(stopTime - startTime);
+	printf("\t -----------------------------------------------\n");
+	printf("\t Create convex mesh with %d triangles: \n", numVerts);
+	directInsertion ? printf("\t\t Direct mesh insertion enabled\n") : printf("\t\t Direct mesh insertion disabled\n");
+	printf("\t\t Gauss map limit: %d \n", gaussMapLimit);
+	printf("\t\t Created hull number of vertices: %d \n", convex->getNbVertices());
+	printf("\t\t Created hull number of polygons: %d \n", convex->getNbPolygons());
+	printf("\t Elapsed time in ms: %f \n", double(elapsedTime));
+	if (!directInsertion)
+	{
+		printf("\t Mesh size: %d \n", meshSize);
+	}
+
+	return (convex);
+
+	//convex->release();
+}
+
+
+PxShape* create_shape_from_mesh(Mesh meshOBJ) {
+
+	//if (mesh.triangle_count() == 0) {
+		// erreur de chargement, pas de triangles
+	const PxU32 numVerticesOBJ = PxU32(meshOBJ.vertex_count());
+	const PxU32 numTrianglesOBJ = PxU32(meshOBJ.triangle_count());
+	std::cout << "numTrianglesOBJ " << numTrianglesOBJ << std::endl;
+	std::cout << "numVerticesOBJ " << numVerticesOBJ << std::endl;
+
+	const PxU32 numIndiceOBJ = numTrianglesOBJ * 3;
+
+	PxVec3* verticesOBJ = new PxVec3[numVerticesOBJ];
+	PxU32* indicesOBJ = new PxU32[numIndiceOBJ];
+
+	for (int i = 0; i <= numVerticesOBJ - 1; i++)
+	{
+		const PxVec3 v = PxVec3(meshOBJ.positions()[i].x, meshOBJ.positions()[i].y, meshOBJ.positions()[i].z);
+		verticesOBJ[i] = v;
+	}
+
+	// The default convex mesh creation without the additional gauss map data.
+	PxConvexMesh* convexMesh = createRandomConvex<PxConvexMeshCookingType::eQUICKHULL, false, 256>(numVerticesOBJ, verticesOBJ);
+
+	gMesh = convexMesh;
+
+	PxConvexMeshGeometry geom(convexMesh);
+
+
+	PxShape* shape = gPhysics->createShape(geom, *gMaterial);
+
+	return shape;
+}
+
+
+
 static void createStack(const PxTransform& t, PxU32 size, PxReal halfExtent)
 {
-	PxShape* shape = gPhysics->createShape(PxBoxGeometry(halfExtent, halfExtent, halfExtent), *gMaterial);
+	//PxShape* shape = gPhysics->createShape(PxBoxGeometry(halfExtent, halfExtent, halfExtent), *gMaterial);
+
+	const char* mesh_filename = "C:\\Users\\PC-B\\Documents\\Guillaume_ITB\\Synthese-Image\\data\\robot.obj";
+	Mesh meshOBJ = read_mesh(mesh_filename);
+	PxShape* shape = create_shape_from_mesh(meshOBJ);
+
 	for(PxU32 i=0; i<size;i++)
 	{
 		for(PxU32 j=0;j<size-i;j++)
@@ -305,75 +418,6 @@ static PxTriangleMesh* createMeshGround()
 }
 
 
-template<PxConvexMeshCookingType::Enum convexMeshCookingType, bool directInsertion, PxU32 gaussMapLimit>
-static PxConvexMesh* createRandomConvex(PxU32 numVerts, const PxVec3* verts)
-{
-	PxCookingParams params = gCooking->getParams();
-
-	// Use the new (default) PxConvexMeshCookingType::eQUICKHULL
-	params.convexMeshCookingType = convexMeshCookingType;
-
-	// If the gaussMapLimit is chosen higher than the number of output vertices, no gauss map is added to the convex mesh data (here 256).
-	// If the gaussMapLimit is chosen lower than the number of output vertices, a gauss map is added to the convex mesh data (here 16).
-	params.gaussMapLimit = gaussMapLimit;
-	gCooking->setParams(params);
-
-	// Setup the convex mesh descriptor
-	PxConvexMeshDesc desc;
-
-	// We provide points only, therefore the PxConvexFlag::eCOMPUTE_CONVEX flag must be specified
-	desc.points.data = verts;
-	desc.points.count = numVerts;
-	desc.points.stride = sizeof(PxVec3);
-	desc.flags = PxConvexFlag::eCOMPUTE_CONVEX;
-
-	PxU32 meshSize = 0;
-	PxConvexMesh* convex = NULL;
-
-	PxU64 startTime = SnippetUtils::getCurrentTimeCounterValue();
-
-	if (directInsertion)
-	{
-		// Directly insert mesh into PhysX
-		convex = gCooking->createConvexMesh(desc, gPhysics->getPhysicsInsertionCallback());
-		PX_ASSERT(convex);
-	}
-	else
-	{
-		// Serialize the cooked mesh into a stream.
-		PxDefaultMemoryOutputStream outStream;
-		bool res = gCooking->cookConvexMesh(desc, outStream);
-		PX_UNUSED(res);
-		PX_ASSERT(res);
-		meshSize = outStream.getSize();
-
-		// Create the mesh from a stream.
-		PxDefaultMemoryInputData inStream(outStream.getData(), outStream.getSize());
-		convex = gPhysics->createConvexMesh(inStream);
-
-		
-		PX_ASSERT(convex);
-	}
-
-	// Print the elapsed time for comparison
-	PxU64 stopTime = SnippetUtils::getCurrentTimeCounterValue();
-	float elapsedTime = SnippetUtils::getElapsedTimeInMilliseconds(stopTime - startTime);
-	printf("\t -----------------------------------------------\n");
-	printf("\t Create convex mesh with %d triangles: \n", numVerts);
-	directInsertion ? printf("\t\t Direct mesh insertion enabled\n") : printf("\t\t Direct mesh insertion disabled\n");
-	printf("\t\t Gauss map limit: %d \n", gaussMapLimit);
-	printf("\t\t Created hull number of vertices: %d \n", convex->getNbVertices());
-	printf("\t\t Created hull number of polygons: %d \n", convex->getNbPolygons());
-	printf("\t Elapsed time in ms: %f \n", double(elapsedTime));
-	if (!directInsertion)
-	{
-		printf("\t Mesh size: %d \n", meshSize);
-	}
-
-	return (convex);
-
-	//convex->release();
-}
 
 void initPhysics(bool /*interactive*/)
 {
@@ -415,122 +459,12 @@ void initPhysics(bool /*interactive*/)
 
 	const char* mesh_filename = "C:\\Users\\PC-B\\Documents\\Guillaume_ITB\\Synthese-Image\\data\\robot.obj";
 	Mesh meshOBJ = read_mesh(mesh_filename);
-	//if (mesh.triangle_count() == 0) {
-		// erreur de chargement, pas de triangles
-	const PxU32 numVerticesOBJ = PxU32(meshOBJ.vertex_count());
-	const PxU32 numTrianglesOBJ = PxU32(meshOBJ.triangle_count());
-	std::cout << "numTrianglesOBJ " << numTrianglesOBJ << std::endl;
-	std::cout << "numVerticesOBJ " << numVerticesOBJ << std::endl;
 
 
-	const PxU32 numIndiceOBJ = numTrianglesOBJ*3;
-	
-	PxVec3* verticesOBJ = new PxVec3[numVerticesOBJ];
-	PxU32* indicesOBJ = new PxU32[numIndiceOBJ];
+	PxShape* shape = create_shape_from_mesh(meshOBJ);
 
-	//PxU32 currentIdx = 0;
-	for (int i = 0; i <= numVerticesOBJ-1; i++)
-	{
-		const PxVec3 v = PxVec3(meshOBJ.positions()[i].x, meshOBJ.positions()[i].y, meshOBJ.positions()[i].z);
-		verticesOBJ[i] = v;
-	}
-
-	//for (int i = 0; i < numTrianglesOBJ; i++)
-	//{
-
-
-	//	indicesOBJ[3 * i] = PxU32(3 * i);
-	//	const PxVec3 va = PxVec3(meshOBJ.triangle(i).a.x, meshOBJ.triangle(i).a.y, meshOBJ.triangle(i).a.z);
-	//	std::cout << meshOBJ.triangle(i).a.x << " " << meshOBJ.triangle(i).a.y << " " << meshOBJ.triangle(i).a.z << std::endl;
-	//	std::cout << va.x << " " << va.y << " " << va.z << std::endl;
-	//	std::cout << "indice tri 1 : " << indicesOBJ[3 * i] << std::endl;
-	//	verticesOBJ[3 * i] = va;
-	//	indicesOBJ[3 * i + 1] = PxU32(3 * i + 1);
-	//	const PxVec3 vb = PxVec3(meshOBJ.triangle(i).b.x, meshOBJ.triangle(i).b.y, meshOBJ.triangle(i).b.z);
-	//	std::cout << meshOBJ.triangle(i).b.x << " " << meshOBJ.triangle(i).b.y << " " << meshOBJ.triangle(i).b.z << std::endl;
-	//	std::cout << vb.x << " " << vb.y << " " << vb.z << std::endl;
-	//	std::cout << "indice tri 2 : " << indicesOBJ[3 * i + 1] << std::endl;
-	//	verticesOBJ[3 * i + 1] = vb;
-	//	indicesOBJ[3 * i + 2] = PxU32(3 * i + 2);
-	//	const PxVec3 vc = PxVec3(meshOBJ.triangle(i).c.x, meshOBJ.triangle(i).c.y, meshOBJ.triangle(i).c.z);
-	//	std::cout << meshOBJ.triangle(i).c.x << " " << meshOBJ.triangle(i).c.y << " " << meshOBJ.triangle(i).c.z << std::endl;
-	//	std::cout << vc.x << " " << vc.y << " " << vc.z << std::endl;
-	//	std::cout << "indice tri 3 : " << indicesOBJ[3 * i + 2] << std::endl;
-	//	verticesOBJ[3 * i + 2] = vc;
-	//}
-
-	//static const PxVec3 convexVerts[] = { PxVec3(0,1,0),PxVec3(1,0,0),PxVec3(-1,0,0),PxVec3(0,0,1),PxVec3(0,0,-1) };
-
-	//PxConvexMeshDesc convexDesc;
-	//convexDesc.points.count = 5;
-	//convexDesc.points.stride = sizeof(PxVec3);
-	//convexDesc.points.data = convexVerts;
-	//convexDesc.flags = PxConvexFlag::eCOMPUTE_CONVEX;
-
-	//PxDefaultMemoryOutputStream buf;
-	//PxConvexMeshCookingResult::Enum result;
-	//if (!gCooking.cookConvexMesh(convexDesc, buf, &result))
-	//	return NULL;
-	//PxDefaultMemoryInputData input(buf.getData(), buf.getSize());
-	//PxConvexMesh* convexMesh = gPhysics->createConvexMesh(input);
-
-	//PxTriangleMesh* mesh = createMeshGround();
-
-	//PxTriangleMesh* mesh = createBV33TriangleMesh(numVerticesOBJ2, verticesOBJ, numTrianglesOBJ2, indicesOBJ, false, false, false, false, false);
-
-	//const PxU32 numVertspira = 5;
-	//const PxU32 numVertcube = 8;
-
-	//PxVec3* vertices = new PxVec3[numVertcube];
-
-
-	//static const PxVec3 verticespira[] = { PxVec3(0,1,0), PxVec3(1,0,0), PxVec3(-1,0,0), PxVec3(0,0,1), PxVec3(0,0,-1) };
-
-	//static const PxVec3 verticescube[] = { PxVec3(-0.5, 0.5, - 0.5)
-	//	,PxVec3(-0.5, 0.5, 0.5)
-	//	,PxVec3(0.5, 0.5,0.5)
-	//	,PxVec3(0.5, 0.5, -0.5)
-	//	,PxVec3(-0.5, -0.5, -0.5)
-	//	,PxVec3(-0.5, -0.5, 0.5)
-	//	,PxVec3(0.5, -0.5, 0.5)
-	//	,PxVec3(0.5, -0.5, -0.5) };
-
-	//// Prepare random verts
-	////for (PxU32 i = 0; i < numVerts; i++)
-	////{
-	////	vertices[i] = vertices2[i];
-	////}
-
-	//for (PxU32 i = 0; i < numVertcube; i++)
-	//{
-	//	vertices[i] = verticescube[i];
-	//}
-
-
-
-	const PxU32 numVerts = 8;
-	PxVec3* vertices = new PxVec3[numVerts];
-
-
-	//static const PxVec3 verticescube[] = { PxVec3(0,1,0), PxVec3(1,0,0), PxVec3(-1,0,0), PxVec3(0,0,1), PxVec3(0,0,-1) };
-	static const PxVec3 verticescube[] = { PxVec3(-0.5, 0.5, -0.5),PxVec3(-0.5, 0.5, 0.5),PxVec3(0.5, 0.5,0.5),PxVec3(0.5, 0.5, -0.5),PxVec3(-0.5, -0.5, -0.5),PxVec3(-0.5, -0.5, 0.5),PxVec3(0.5, -0.5, 0.5),PxVec3(0.5, -0.5, -0.5) };
-
-	// Prepare random verts
-	for (PxU32 i = 0; i < numVerts; i++)
-	{
-		vertices[i] = verticescube[i];
-	}
-
-	// The default convex mesh creation without the additional gauss map data.
-	PxConvexMesh* convexMesh = createRandomConvex<PxConvexMeshCookingType::eQUICKHULL, false, 256>(numVerticesOBJ, verticesOBJ);
-
-	gMesh = convexMesh;
-
-	PxConvexMeshGeometry geom(convexMesh);
-
-	PxRigidDynamic* groundMesh = gPhysics->createRigidDynamic(PxTransform(PxVec3(0, 2, 0)));
+	PxRigidStatic* groundMesh = gPhysics->createRigidStatic(PxTransform(PxVec3(0, 2, 0)));
 	gActor = groundMesh;
-	PxShape* shape = gPhysics->createShape(geom, *gMaterial);
 
 	{
 		shape->setContactOffset(0.02f);

@@ -413,7 +413,7 @@ void initPhysics(bool /*interactive*/)
 	gMaterial = gPhysics->createMaterial(0.5f, 0.5f, 0.6f);
 
 
-	const char* mesh_filename = "C:\\Users\\PC-B\\Documents\\Guillaume_ITB\\Synthese-Image\\data\\cube.obj";
+	const char* mesh_filename = "C:\\Users\\PC-B\\Documents\\Guillaume_ITB\\Synthese-Image\\data\\robot.obj";
 	Mesh meshOBJ = read_mesh(mesh_filename);
 	//if (mesh.triangle_count() == 0) {
 		// erreur de chargement, pas de triangles
@@ -423,12 +423,10 @@ void initPhysics(bool /*interactive*/)
 	std::cout << "numVerticesOBJ " << numVerticesOBJ << std::endl;
 
 
-	const PxU32 numVerticesOBJ2 = numVerticesOBJ;
-	const PxU32 numTrianglesOBJ2 = numTrianglesOBJ;
-	const PxU32 numIndiceOBJ2 = numTrianglesOBJ2*3;
+	const PxU32 numIndiceOBJ = numTrianglesOBJ*3;
 	
-	PxVec3* verticesOBJ = new PxVec3[numVerticesOBJ2];
-	PxU32* indicesOBJ = new PxU32[numIndiceOBJ2];
+	PxVec3* verticesOBJ = new PxVec3[numVerticesOBJ];
+	PxU32* indicesOBJ = new PxU32[numIndiceOBJ];
 
 	//PxU32 currentIdx = 0;
 	for (int i = 0; i <= numVerticesOBJ-1; i++)
@@ -524,9 +522,7 @@ void initPhysics(bool /*interactive*/)
 	}
 
 	// The default convex mesh creation without the additional gauss map data.
-	PxConvexMesh* convexMesh = createRandomConvex<PxConvexMeshCookingType::eQUICKHULL, false, 256>(numVerts, vertices);
-
-
+	PxConvexMesh* convexMesh = createRandomConvex<PxConvexMeshCookingType::eQUICKHULL, false, 256>(numVerticesOBJ, verticesOBJ);
 
 	gMesh = convexMesh;
 

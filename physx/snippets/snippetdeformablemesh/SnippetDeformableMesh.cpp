@@ -193,7 +193,7 @@ static PxTriangleMesh* createBV33TriangleMesh(PxU32 numVertices, const PxVec3* v
 
 	gCooking->setParams(params);
 
-	PX_ASSERT(gCooking->validateTriangleMesh(meshDesc));
+	//PX_ASSERT(gCooking->validateTriangleMesh(meshDesc));
 
 
 	PxTriangleMesh* triMesh = NULL;
@@ -236,75 +236,6 @@ static PxTriangleMesh* createBV33TriangleMesh(PxU32 numVertices, const PxVec3* v
 	//triMesh->release();
 }
 
-
-// Creates a triangle mesh using BVH34 midphase with different settings.
-static PxTriangleMesh* createBV34TriangleMesh(PxU32 numVertices, const PxVec3* vertices, PxU32 numTriangles, const PxU32* indices,
-	bool skipMeshCleanup, bool skipEdgeData, bool inserted, const PxU32 numTrisPerLeaf)
-{
-	PxU64 startTime = SnippetUtils::getCurrentTimeCounterValue();
-
-	PxTriangleMeshDesc meshDesc;
-	meshDesc.points.count = numVertices;
-	meshDesc.points.data = vertices;
-	meshDesc.points.stride = sizeof(PxVec3);
-	meshDesc.triangles.count = numTriangles;
-	meshDesc.triangles.data = indices;
-	meshDesc.triangles.stride = 3 * sizeof(PxU32);
-
-	PxCookingParams params = gCooking->getParams();
-
-	// Create BVH34 midphase
-	params.midphaseDesc = PxMeshMidPhase::eBVH34;
-
-	// setup common cooking params
-	setupCommonCookingParams(params, skipMeshCleanup, skipEdgeData);
-
-	// Cooking mesh with less triangles per leaf produces larger meshes with better runtime performance
-	// and worse cooking performance. Cooking time is better when more triangles per leaf are used.
-	params.midphaseDesc.mBVH34Desc.numPrimsPerLeaf = numTrisPerLeaf;
-
-	gCooking->setParams(params);
-
-	PX_ASSERT(gCooking->validateTriangleMesh(meshDesc));
-
-	PxTriangleMesh* triMesh = NULL;
-	PxU32 meshSize = 0;
-
-	// The cooked mesh may either be saved to a stream for later loading, or inserted directly into PxPhysics.
-	//if (inserted)
-	//{
-	//triMesh = gCooking->createTriangleMesh(meshDesc, gPhysics->getPhysicsInsertionCallback());
-	//}
-	//else
-	//{
-	PxDefaultMemoryOutputStream outBuffer;
-	gCooking->cookTriangleMesh(meshDesc, outBuffer);
-
-	PxDefaultMemoryInputData stream(outBuffer.getData(), outBuffer.getSize());
-	triMesh = gPhysics->createTriangleMesh(stream);
-
-	meshSize = outBuffer.getSize();
-	//}
-
-	// Print the elapsed time for comparison
-	PxU64 stopTime = SnippetUtils::getCurrentTimeCounterValue();
-	float elapsedTime = SnippetUtils::getElapsedTimeInMilliseconds(stopTime - startTime);
-	printf("\t -----------------------------------------------\n");
-	printf("\t Create triangle mesh with %d triangles: \n", numTriangles);
-	inserted ? printf("\t\t Mesh inserted on\n") : printf("\t\t Mesh inserted off\n");
-	!skipEdgeData ? printf("\t\t Precompute edge data on\n") : printf("\t\t Precompute edge data off\n");
-	!skipMeshCleanup ? printf("\t\t Mesh cleanup on\n") : printf("\t\t Mesh cleanup off\n");
-	printf("\t\t Num triangles per leaf: %d \n", numTrisPerLeaf);
-	printf("\t Elapsed time in ms: %f \n", double(elapsedTime));
-	if (!inserted)
-	{
-		printf("\t Mesh size: %d \n", meshSize);
-	}
-
-	return(triMesh);
-
-	//triMesh->release();
-}
 
 
 static PxTriangleMesh* createMeshGround()
@@ -411,17 +342,22 @@ void initPhysics(bool /*interactive*/)
 	gMaterial = gPhysics->createMaterial(0.5f, 0.5f, 0.6f);
 
 
-	const char* mesh_filename = "C:\\Users\\PC-B\\Documents\\Guillaume_ITB\\Synthese-Image\\data\\triangle.obj";
+	const char* mesh_filename = "C:\\Users\\PC-B\\Documents\\Guillaume_ITB\\Synthese-Image\\data\\robot.obj";
 	Mesh meshOBJ = read_mesh(mesh_filename);
 	//if (mesh.triangle_count() == 0) {
 		// erreur de chargement, pas de triangles
 	const PxU32 numVerticesOBJ = PxU32(meshOBJ.vertex_count());
 	const PxU32 numTrianglesOBJ = PxU32(meshOBJ.triangle_count());
-	std::cout << "numTrianglesOBJ " << numTrianglesOBJ << std::endl;
+	std::cout << "numTrianglesOBJ " << numVerticesOBJ << std::endl;
 	std::cout << "numVerticesOBJ " << numVerticesOBJ << std::endl;
 
-	PxVec3* verticesOBJ = new PxVec3[numVerticesOBJ];
-	PxU32* indicesOBJ = new PxU32[numVerticesOBJ];
+
+	const PxU32 numVerticesOBJ2 = numVerticesOBJ;
+	const PxU32 numTrianglesOBJ2 = numTrianglesOBJ;
+	const PxU32 numIndiceOBJ2 = numTrianglesOBJ2*3;
+	
+	PxVec3* verticesOBJ = new PxVec3[numVerticesOBJ2];
+	PxU32* indicesOBJ = new PxU32[numIndiceOBJ2];
 
 	//PxU32 currentIdx = 0;
 	//for (int i = 0; i <= numVerticesOBJ; i++)
@@ -455,10 +391,10 @@ void initPhysics(bool /*interactive*/)
 	}
 
 
-	//const PxVec3 v1 = PxVec3(-400, 20, -400);
-	//const PxVec3 v2 = PxVec3(112, 20, -400);
-	//const PxVec3 v3 = PxVec3(-400, 20, 112);
-	//const PxVec3 v4 = PxVec3(112, 20, 112);
+	//const PxVec3 v1 = PxVec3(-0.5, -0.5, 0.5);
+	//const PxVec3 v2 = PxVec3(-0.5, 0.5, 0.5);
+	//const PxVec3 v3 = PxVec3(0.5, 0.5, 0.5);
+	//const PxVec3 v4 = PxVec3(0.5, -0.5, 0.5);
 
 
 	//verticesOBJ[PxU32(0)] = v1;
@@ -466,17 +402,71 @@ void initPhysics(bool /*interactive*/)
 	//verticesOBJ[PxU32(2)] = v3;
 	//verticesOBJ[PxU32(3)] = v4;
 
-	//indicesOBJ[PxU32(0)] = PxU32(1);
-	//indicesOBJ[PxU32(1)] = PxU32(0);
-	//indicesOBJ[PxU32(2)] = PxU32(3);
-	//indicesOBJ[PxU32(3)] = PxU32(3);
-	//indicesOBJ[PxU32(4)] = PxU32(0);
-	//indicesOBJ[PxU32(5)] = PxU32(2);
 
+	//indicesOBJ[PxU32(0)] = PxU32(2);
+	//indicesOBJ[PxU32(1)] = PxU32(3);
+	//indicesOBJ[PxU32(2)] = PxU32(0);
+	//indicesOBJ[PxU32(3)] = PxU32(2);
+	//indicesOBJ[PxU32(4)] = PxU32(0);
+	//indicesOBJ[PxU32(5)] = PxU32(1);
+
+
+	//const PxVec3 v1 = PxVec3(-0.5, -0.5, 0.5);
+	//const PxVec3 v2 = PxVec3(-0.5, -0.5, -0.5);
+	//const PxVec3 v3 = PxVec3(0.5, -0.5, -0.5);
+	//const PxVec3 v4 = PxVec3(-0.5, -0.5, 0.5);
+	//const PxVec3 v5 = PxVec3(0.5, -0.5, -0.5);
+	//const PxVec3 v6 = PxVec3(0.5, -0.5, 0.5);
+
+	//verticesOBJ[PxU32(0)] = v1;
+	//verticesOBJ[PxU32(1)] = v2;
+	//verticesOBJ[PxU32(2)] = v3;
+	//verticesOBJ[PxU32(3)] = v4;
+	//verticesOBJ[PxU32(4)] = v5;
+	//verticesOBJ[PxU32(5)] = v6;
+
+	//verticesOBJ[PxU32(0)] = PxVec3(0.5, 0.5, -0.5);
+	//verticesOBJ[PxU32(1)] = PxVec3(-0.5, 0.5, 0.5);
+	//verticesOBJ[PxU32(2)] = PxVec3(0.5, 0.5, 0.5);
+	//verticesOBJ[PxU32(3)] = PxVec3(0.5, 0.5, -0.5);
+	//verticesOBJ[PxU32(4)] = PxVec3(-0.5, -0.5, -0.5);
+	//verticesOBJ[PxU32(5)] = PxVec3(-0.5, -0.5, 0.5);
+	//verticesOBJ[PxU32(6)] = PxVec3(0.5, -0.5, 0.5);
+	//verticesOBJ[PxU32(7)] = PxVec3(0.5, -0.5, -0.5);
+
+
+
+	////indicesOBJ[PxU32(0)] = PxU32(0);
+	////indicesOBJ[PxU32(1)] = PxU32(1);
+	////indicesOBJ[PxU32(2)] = PxU32(2);
+	////indicesOBJ[PxU32(3)] = PxU32(3);
+	////indicesOBJ[PxU32(4)] = PxU32(4);
+	////indicesOBJ[PxU32(5)] = PxU32(5);
+
+	//indicesOBJ[PxU32(0)] = PxU32(7);
+	//indicesOBJ[PxU32(1)] = PxU32(6);
+	//indicesOBJ[PxU32(2)] = PxU32(5);
+	//indicesOBJ[PxU32(3)] = PxU32(7);
+	//indicesOBJ[PxU32(4)] = PxU32(5);
+	//indicesOBJ[PxU32(5)] = PxU32(4);
+
+	//indicesOBJ[PxU32(6)] = PxU32(7);
+	//indicesOBJ[PxU32(7)] = PxU32(3);
+	//indicesOBJ[PxU32(8)] = PxU32(2);
+	//indicesOBJ[PxU32(9)] = PxU32(7);
+	//indicesOBJ[PxU32(10)] = PxU32(2);
+	//indicesOBJ[PxU32(11)] = PxU32(6);
+
+	//indicesOBJ[PxU32(12)] = PxU32(5);
+	//indicesOBJ[PxU32(13)] = PxU32(1);
+	//indicesOBJ[PxU32(14)] = PxU32(0);
+	//indicesOBJ[PxU32(15)] = PxU32(5);
+	//indicesOBJ[PxU32(16)] = PxU32(0);
+	//indicesOBJ[PxU32(17)] = PxU32(4);
 
 	//PxTriangleMesh* mesh = createMeshGround();
 
-	PxTriangleMesh* mesh = createBV33TriangleMesh(numVerticesOBJ, verticesOBJ, numTrianglesOBJ, indicesOBJ, false, false, false, false, false);
+	PxTriangleMesh* mesh = createBV33TriangleMesh(numVerticesOBJ2, verticesOBJ, numTrianglesOBJ2, indicesOBJ, false, false, false, false, false);
 
 	gMesh = mesh;
 
@@ -501,6 +491,7 @@ void initPhysics(bool /*interactive*/)
 void stepPhysics(bool /*interactive*/)
 {
 	{
+		std::cout << "STEP : " << std::endl;
 		PxVec3* verts = gMesh->getVerticesForModification();
 		gTime += 0.01f;
 		updateVertices(verts, sinf(gTime)*20.0f);

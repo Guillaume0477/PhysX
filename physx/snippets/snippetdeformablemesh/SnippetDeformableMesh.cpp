@@ -65,7 +65,8 @@ PxMaterial*				gMaterial	= NULL;
 
 PxPvd*                  gPvd        = NULL;
 
-PxConvexMesh*			gMesh		= NULL;
+PxConvexMesh*			gMeshstack		= NULL;
+PxTriangleMesh* gMesh = NULL;
 PxRigidStatic*			gActor		= NULL;
 
 PxReal stackZ = 10.0f;
@@ -155,6 +156,36 @@ static PxConvexMesh* createRandomConvex(PxU32 numVerts, const PxVec3* verts)
 }
 
 
+PxJoint* createBreakableFixed(PxRigidActor* a0, const PxTransform& t0, PxRigidActor* a1, const PxTransform& t1)
+{
+	PxFixedJoint* j = PxFixedJointCreate(*gPhysics, a0, t0, a1, t1);
+	j->setBreakForce(INFINITY, INFINITY);
+	j->setConstraintFlag(PxConstraintFlag::eDRIVE_LIMITS_ARE_FORCES, true);
+	j->setConstraintFlag(PxConstraintFlag::eDISABLE_PREPROCESSING, true);
+	j->setConstraintFlag(PxConstraintFlag::eENABLE_EXTENDED_LIMITS, 0); //evite 
+	return j;
+}
+
+
+typedef PxJoint* (*JointCreateFunction)(PxRigidActor* a0, const PxTransform& t0, PxRigidActor* a1, const PxTransform& t1);
+
+
+void createChain2(const PxTransform& t, PxU32 length, const PxGeometry& g, PxReal separation, JointCreateFunction createJoint)
+{
+	PxVec3 offset(separation / 2, 0, 0);
+	PxTransform localTm(offset);
+	PxRigidDynamic* prev = NULL;
+
+	for (PxU32 i = 0; i < length; i++)
+	{
+		PxRigidDynamic* current = PxCreateDynamic(*gPhysics, t * localTm, g, *gMaterial, 1.0f);
+		createBreakableFixed(prev, prev ? PxTransform(offset) : t, current, PxTransform(-offset));
+		gScene->addActor(*current);
+		prev = current;
+		localTm.p.x += separation;
+	}
+}
+
 PxShape* create_shape_from_mesh(Mesh meshOBJ) {
 
 	//if (mesh.triangle_count() == 0) {
@@ -178,39 +209,77 @@ PxShape* create_shape_from_mesh(Mesh meshOBJ) {
 	// The default convex mesh creation without the additional gauss map data.
 	PxConvexMesh* convexMesh = createRandomConvex<PxConvexMeshCookingType::eQUICKHULL, false, 256>(numVerticesOBJ, verticesOBJ);
 
-	gMesh = convexMesh;
+	gMeshstack = convexMesh;
 
 	PxConvexMeshGeometry geom(convexMesh);
 
-
+	createChain2(PxTransform(PxVec3(0.0f, 40.0f, -10.0f)), 5, PxCapsuleGeometry(1.0, 2.0), 5.0f, createBreakableFixed);
 	PxShape* shape = gPhysics->createShape(geom, *gMaterial);
 
 	return shape;
 }
 
 
+PxShape* create_shape_from_mesh2(Mesh meshOBJ) {
+
+	//if (mesh.triangle_count() == 0) {
+		// erreur de chargement, pas de triangles
+	const PxU32 numVerticesOBJ = PxU32(meshOBJ.vertex_count());
+	const PxU32 numTrianglesOBJ = PxU32(meshOBJ.triangle_count());
+	std::cout << "numTrianglesOBJ " << numTrianglesOBJ << std::endl;
+	std::cout << "numVerticesOBJ " << numVerticesOBJ << std::endl;
+
+	const PxU32 numIndiceOBJ = numTrianglesOBJ * 3;
+
+	PxVec3* verticesOBJ = new PxVec3[numVerticesOBJ];
+	PxU32* indicesOBJ = new PxU32[numIndiceOBJ];
+
+	for (int i = 0; i <= numVerticesOBJ - 1; i++)
+	{
+		const PxVec3 v = PxVec3(meshOBJ.positions()[i].x +20, meshOBJ.positions()[i].y, meshOBJ.positions()[i].z);
+		verticesOBJ[i] = v;
+	}
+
+	// The default convex mesh creation without the additional gauss map data.
+	PxConvexMesh* convexMesh = createRandomConvex<PxConvexMeshCookingType::eQUICKHULL, false, 256>(numVerticesOBJ, verticesOBJ);
+
+	gMeshstack = convexMesh;
+
+	PxConvexMeshGeometry geom(convexMesh);
+
+	createChain2(PxTransform(PxVec3(0.0f, 40.0f, -10.0f)), 5, PxCapsuleGeometry(1.0, 2.0), 5.0f, createBreakableFixed);
+	PxShape* shape = gPhysics->createShape(geom, *gMaterial);
+
+	return shape;
+}
 
 static void createStack(const PxTransform& t, PxU32 size, PxReal halfExtent)
 {
 	//PxShape* shape = gPhysics->createShape(PxBoxGeometry(halfExtent, halfExtent, halfExtent), *gMaterial);
 
-	const char* mesh_filename = "C:\\Users\\PC-B\\Documents\\Guillaume_ITB\\Synthese-Image\\data\\robot.obj";
+	//const char* mesh_filename = "C:\\Users\\PC-B\\Documents\\Guillaume_ITB\\Synthese-Image\\data\\robot.obj";
+	const char* mesh_filename = "C:\\Users\\PC-B\\Documents\\Guillaume_ITB\\barillet.obj";
 	Mesh meshOBJ = read_mesh(mesh_filename);
 	PxShape* shape = create_shape_from_mesh(meshOBJ);
+	PxShape* shape2 = create_shape_from_mesh2(meshOBJ);
 
 	for(PxU32 i=0; i<size;i++)
 	{
 		for(PxU32 j=0;j<size-i;j++)
 		{
+			
 			PxTransform localTm(PxVec3(PxReal(j*2) - PxReal(size-i), PxReal(i*2+1), 0) * halfExtent);
 			PxRigidDynamic* body = gPhysics->createRigidDynamic(t.transform(localTm));
 			body->attachShape(*shape);
+			body->attachShape(*shape2);
 			PxRigidBodyExt::updateMassAndInertia(*body, 10.0f);
 			gScene->addActor(*body);
 		}
 	}
 	shape->release();
 }
+
+
 
 struct Triangle
 {
@@ -428,6 +497,7 @@ void initPhysics(bool /*interactive*/)
 	gPvd->connect(*transport,PxPvdInstrumentationFlag::eALL);
 
 	gPhysics = PxCreatePhysics(PX_PHYSICS_VERSION, *gFoundation, PxTolerancesScale(), true, gPvd);
+	PxInitExtensions(*gPhysics, gPvd);
 
 	PxCookingParams cookingParams(gPhysics->getTolerancesScale());
 
@@ -457,25 +527,25 @@ void initPhysics(bool /*interactive*/)
 	gMaterial = gPhysics->createMaterial(0.5f, 0.5f, 0.6f);
 
 
-	const char* mesh_filename = "C:\\Users\\PC-B\\Documents\\Guillaume_ITB\\Synthese-Image\\data\\robot.obj";
-	Mesh meshOBJ = read_mesh(mesh_filename);
+	PxTriangleMesh* mesh = createMeshGround();
+	gMesh = mesh;
 
-
-	PxShape* shape = create_shape_from_mesh(meshOBJ);
+	PxTriangleMeshGeometry geom(mesh);
 
 	PxRigidStatic* groundMesh = gPhysics->createRigidStatic(PxTransform(PxVec3(0, 2, 0)));
 	gActor = groundMesh;
+	PxShape* shape = gPhysics->createShape(geom, *gMaterial);
 
-	{
-		shape->setContactOffset(0.02f);
-		// A negative rest offset helps to avoid jittering when the deformed mesh moves away from objects resting on it.
-		shape->setRestOffset(-0.5f);
-	}
+	//{
+	//	shape->setContactOffset(0.02f);
+	//	// A negative rest offset helps to avoid jittering when the deformed mesh moves away from objects resting on it.
+	//	shape->setRestOffset(-0.5f);
+	//}
 
 	groundMesh->attachShape(*shape);
 	gScene->addActor(*groundMesh);
 
-	createStack(PxTransform(PxVec3(0,22,0)), 10, 2.0f);
+	createStack(PxTransform(PxVec3(0,22,0)), 10, 30.0f);
 }
 
 void stepPhysics(bool /*interactive*/)

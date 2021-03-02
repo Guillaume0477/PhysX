@@ -303,7 +303,7 @@ static void createStack(const PxTransform& t, PxU32 size, PxReal halfExtent)
 
 		shapes.push_back(shape);
 	}
-	for(PxU32 i=0; i<size+2;i++)
+	for(PxU32 i=1; i<size;i++)
 	{
 		for(PxU32 j=0;j<size;j++)
 		{
@@ -324,6 +324,47 @@ static void createStack(const PxTransform& t, PxU32 size, PxReal halfExtent)
 	
 }
 
+
+static void createBox(const PxTransform& t, PxU32 size, PxReal halfExtent)
+{
+	//PxShape* shape = gPhysics->createShape(PxBoxGeometry(halfExtent, halfExtent, halfExtent), *gMaterial);
+
+	//const char* mesh_filename = "C:\\Users\\PC-B\\Documents\\Guillaume_ITB\\Synthese-Image\\data\\robot.obj";
+	//const char* mesh_filename = "C:\\Users\\PC-B\\Documents\\Guillaume_ITB\\barillet.obj";
+	//const char* mesh_filename = "C:\\Users\\PC-B\\Documents\\Guillaume_ITB\\split_bari\\bari0.obj";
+
+
+	PxU32 num_split = 8;
+	std::string mesh_filename_str;
+	std::vector<PxShape*> shapes;
+	char str_k[60];
+	for (PxU32 i = 0; i < num_split; i++) {
+
+		sprintf(str_k, "C:\\Users\\PC-B\\Documents\\Guillaume_ITB\\box_barrillet_split\\box%d.obj", (i));
+		mesh_filename_str = str_k;
+		const char* mesh_filename = mesh_filename_str.c_str();
+
+		Mesh meshOBJ = read_mesh(mesh_filename);
+		PxShape* shape = create_shape_from_mesh(meshOBJ);
+		//PxShape* shape2 = create_shape_from_mesh2(meshOBJ);
+
+		shapes.push_back(shape);
+	}
+
+	PxTransform localTm = PxTransform(PxIdentity);
+	PxRigidStatic* body = gPhysics->createRigidStatic(t.transform(localTm));
+	for (PxU32 k = 0; k < num_split; k++) {
+		body->attachShape(*shapes[k]);
+	}
+	//body->attachShape(*shape2);
+	//PxRigidBodyExt::updateMassAndInertia(*body, 10.0f);
+	gScene->addActor(*body);
+
+	for (PxU32 k = 0; k < num_split; k++) {
+		shapes[k]->release();
+	}
+
+}
 
 
 struct Triangle
@@ -586,6 +627,9 @@ void initPhysics(bool /*interactive*/)
 	//gScene->addActor(*groundMesh);
 
 
+	createBox(PxTransform(PxIdentity), 1, 1);
+
+
 	PxVec3 center = PxVec3(20.31, -766.59, -422.0); // x, y, z reel
 	PxVec3 demi_dim_carton = PxVec3(104.5, 145.0, 100.0); // x, y, z reel
 	//PxVec3 demi_dim_carton = PxVec3(104.5, 145.0, 0.0);
@@ -597,16 +641,16 @@ void initPhysics(bool /*interactive*/)
 	PxRigidStatic* groundPlane5 = PxCreatePlane(*gPhysics, PxPlane(0, 1, 0, 2.0f * demi_dim_carton.z), *gMaterial);
 	//PxRigidStatic* groundPlane5 = PxCreatePlane(*gPhysics, PxPlane(0, 0, -10, 0), *gMaterial);
 	//PxRigidStatic* groundPlane = PxCreatePlane(*gPhysics, PxPlane(0, 1, 0, 0), *gMaterial);
-	gScene->addActor(*groundPlane);
-	gScene->addActor(*groundPlane2);
-	gScene->addActor(*groundPlane3);
-	gScene->addActor(*groundPlane4);
+	//gScene->addActor(*groundPlane);
+	//gScene->addActor(*groundPlane2);
+	//gScene->addActor(*groundPlane3);
+	//gScene->addActor(*groundPlane4);
 	gScene->addActor(*groundPlane5);
 
-	for (PxU32 i = 0; i < 12; i++) {
+	for (PxU32 i = 0; i < 2; i++) {
 		//createStack(PxTransform(PxVec3(0, stackY += 10.0f, 0), PxQuat(0.0f, 0.0f, 0.0f, 1.0f)), 10, 2.0f);
 
-		createStack(PxTransform(PxVec3(-demi_dim_carton.x, stackY += 100.0f, -demi_dim_carton.y)), 4, 22.0);  //dernier = espace entre objets
+		createStack(PxTransform(PxVec3(-demi_dim_carton.x, stackY += 100.0f, -demi_dim_carton.y)), 4, 30.0);  //dernier = espace entre objets
 		//createStack(PxTransform(PxVec3(0, stackY += 10.0f, 0), random_quaternion()), 10, 2.0f);
 		//PxQuat(x * s, y * s, z * s, w * s);
 		//createStack(PxTransform(PxVec3(0, stackY += 10.0f, 0), PxQuat(0.0f, 0.0f, 0.0f, 0.0f)));

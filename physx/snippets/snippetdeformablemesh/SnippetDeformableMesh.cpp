@@ -213,7 +213,6 @@ PxShape* create_shape_from_mesh(Mesh meshOBJ) {
 
 	PxConvexMeshGeometry geom(convexMesh);
 
-	createChain2(PxTransform(PxVec3(0.0f, 40.0f, -10.0f)), 5, PxCapsuleGeometry(1.0, 2.0), 5.0f, createBreakableFixed);
 	PxShape* shape = gPhysics->createShape(geom, *gMaterial);
 
 	return shape;
@@ -247,7 +246,6 @@ PxShape* create_shape_from_mesh2(Mesh meshOBJ) {
 
 	PxConvexMeshGeometry geom(convexMesh);
 
-	createChain2(PxTransform(PxVec3(0.0f, 40.0f, -10.0f)), 5, PxCapsuleGeometry(1.0, 2.0), 5.0f, createBreakableFixed);
 	PxShape* shape = gPhysics->createShape(geom, *gMaterial);
 
 	return shape;
@@ -258,11 +256,26 @@ static void createStack(const PxTransform& t, PxU32 size, PxReal halfExtent)
 	//PxShape* shape = gPhysics->createShape(PxBoxGeometry(halfExtent, halfExtent, halfExtent), *gMaterial);
 
 	//const char* mesh_filename = "C:\\Users\\PC-B\\Documents\\Guillaume_ITB\\Synthese-Image\\data\\robot.obj";
-	const char* mesh_filename = "C:\\Users\\PC-B\\Documents\\Guillaume_ITB\\barillet.obj";
-	Mesh meshOBJ = read_mesh(mesh_filename);
-	PxShape* shape = create_shape_from_mesh(meshOBJ);
-	PxShape* shape2 = create_shape_from_mesh2(meshOBJ);
+	//const char* mesh_filename = "C:\\Users\\PC-B\\Documents\\Guillaume_ITB\\barillet.obj";
+	//const char* mesh_filename = "C:\\Users\\PC-B\\Documents\\Guillaume_ITB\\split_bari\\bari0.obj";
 
+
+	PxU32 num_split = 16;
+	std::string mesh_filename_str;
+	std::vector<PxShape*> shapes;
+	char str_k[60];
+	for (PxU32 i = 0; i < num_split; i++) {
+		
+		sprintf(str_k, "C:\\Users\\PC-B\\Documents\\Guillaume_ITB\\split_bari\\bari%d.obj", (i));
+		mesh_filename_str = str_k;
+		const char* mesh_filename = mesh_filename_str.c_str();
+
+		Mesh meshOBJ = read_mesh(mesh_filename);
+		PxShape* shape = create_shape_from_mesh(meshOBJ);
+		//PxShape* shape2 = create_shape_from_mesh2(meshOBJ);
+
+		shapes.push_back(shape);
+	}
 	for(PxU32 i=0; i<size;i++)
 	{
 		for(PxU32 j=0;j<size-i;j++)
@@ -270,13 +283,18 @@ static void createStack(const PxTransform& t, PxU32 size, PxReal halfExtent)
 			
 			PxTransform localTm(PxVec3(PxReal(j*2) - PxReal(size-i), PxReal(i*2+1), 0) * halfExtent);
 			PxRigidDynamic* body = gPhysics->createRigidDynamic(t.transform(localTm));
-			body->attachShape(*shape);
-			body->attachShape(*shape2);
+			for (PxU32 k = 0; k < num_split; k++) {
+				body->attachShape(*shapes[k]);
+			}
+			//body->attachShape(*shape2);
 			PxRigidBodyExt::updateMassAndInertia(*body, 10.0f);
 			gScene->addActor(*body);
 		}
 	}
-	shape->release();
+	for (PxU32 k = 0; k < num_split; k++) {
+		shapes[k]->release();
+	}
+	
 }
 
 

@@ -69,7 +69,7 @@ PxConvexMesh*			gMeshstack		= NULL;
 PxTriangleMesh* gMesh = NULL;
 PxRigidStatic*			gActor		= NULL;
 
-PxReal stackZ = 10.0f;
+PxReal stackY = 10.0f;
 
 static const PxU32 gGridSize = 2;
 static const PxReal gGridStep = 512.0f / PxReal(gGridSize-1);
@@ -251,6 +251,33 @@ PxShape* create_shape_from_mesh2(Mesh meshOBJ) {
 	return shape;
 }
 
+
+PxQuat random_quaternion() {
+	//float x, y, z, u, v, w, s;
+	//do { x = 2 * rand() - 1; y = 2 * rand() - 1; z = x * x + y * y; } while (z > 1);
+	//do { u = 2 * rand() - 1; v = 2 * rand() - 1; w = u * u + v * v; } while (w > 1);
+	//s = sqrt((1 - z) / w);
+	//PxQuat pxrand = PxQuat(x, y, s * u, s * v);
+	float u1, u2, u3;
+
+	u1 = rand() / float(RAND_MAX); //changer division eucli
+	u2 = rand() / float(RAND_MAX);
+	u3 = rand() / float(RAND_MAX);
+
+	std::cout << u1 << "  " << u2 << "  " << u3 << "  " << std::endl;
+
+	float temp1 = sqrt(u1);
+	float temp2 = sqrt(1 - u1);
+	float pi = 3.14159265;
+
+	//PxQuat pxrand = PxQuat(0.0f, 0.0f, 0.0f, 1.0f);
+	//quaternion uniform random
+	PxQuat pxrand = PxQuat(temp2 * sin(2 * pi * u2), temp2 * cos(2 * pi * u2), temp1 * sin(2 * pi * u3), temp1 * cos(2 * pi * u3));
+
+	return(pxrand);
+}
+
+
 static void createStack(const PxTransform& t, PxU32 size, PxReal halfExtent)
 {
 	//PxShape* shape = gPhysics->createShape(PxBoxGeometry(halfExtent, halfExtent, halfExtent), *gMaterial);
@@ -276,12 +303,12 @@ static void createStack(const PxTransform& t, PxU32 size, PxReal halfExtent)
 
 		shapes.push_back(shape);
 	}
-	for(PxU32 i=0; i<size;i++)
+	for(PxU32 i=0; i<size+2;i++)
 	{
-		for(PxU32 j=0;j<size-i;j++)
+		for(PxU32 j=0;j<size;j++)
 		{
 			
-			PxTransform localTm(PxVec3(PxReal(j*2) - PxReal(size-i), PxReal(i*2+1), 0) * halfExtent);
+			PxTransform localTm((PxVec3(PxReal(j * 2 + 1), 0, PxReal(i * 2 + 1)) * halfExtent), random_quaternion());
 			PxRigidDynamic* body = gPhysics->createRigidDynamic(t.transform(localTm));
 			for (PxU32 k = 0; k < num_split; k++) {
 				body->attachShape(*shapes[k]);
@@ -554,30 +581,61 @@ void initPhysics(bool /*interactive*/)
 	gActor = groundMesh;
 	PxShape* shape = gPhysics->createShape(geom, *gMaterial);
 
+
+	groundMesh->attachShape(*shape);
+	//gScene->addActor(*groundMesh);
+
+
+	PxVec3 center = PxVec3(20.31, -766.59, -422.0); // x, y, z reel
+	PxVec3 demi_dim_carton = PxVec3(104.5, 145.0, 100.0); // x, y, z reel
+	//PxVec3 demi_dim_carton = PxVec3(104.5, 145.0, 0.0);
+	//PxVec3 demi_dim_carton = PxVec3(1000, 1000, 0);
+	PxRigidStatic* groundPlane = PxCreatePlane(*gPhysics, PxPlane(1, 0, 0, demi_dim_carton.x), *gMaterial);
+	PxRigidStatic* groundPlane2 = PxCreatePlane(*gPhysics, PxPlane(-1, 0, 0, demi_dim_carton.x), *gMaterial);
+	PxRigidStatic* groundPlane3 = PxCreatePlane(*gPhysics, PxPlane(0, 0, 1, demi_dim_carton.y), *gMaterial);
+	PxRigidStatic* groundPlane4 = PxCreatePlane(*gPhysics, PxPlane(0, 0, -1, demi_dim_carton.y), *gMaterial);
+	PxRigidStatic* groundPlane5 = PxCreatePlane(*gPhysics, PxPlane(0, 1, 0, 2.0f * demi_dim_carton.z), *gMaterial);
+	//PxRigidStatic* groundPlane5 = PxCreatePlane(*gPhysics, PxPlane(0, 0, -10, 0), *gMaterial);
+	//PxRigidStatic* groundPlane = PxCreatePlane(*gPhysics, PxPlane(0, 1, 0, 0), *gMaterial);
+	gScene->addActor(*groundPlane);
+	gScene->addActor(*groundPlane2);
+	gScene->addActor(*groundPlane3);
+	gScene->addActor(*groundPlane4);
+	gScene->addActor(*groundPlane5);
+
+	for (PxU32 i = 0; i < 12; i++) {
+		//createStack(PxTransform(PxVec3(0, stackY += 10.0f, 0), PxQuat(0.0f, 0.0f, 0.0f, 1.0f)), 10, 2.0f);
+
+		createStack(PxTransform(PxVec3(-demi_dim_carton.x, stackY += 100.0f, -demi_dim_carton.y)), 4, 22.0);  //dernier = espace entre objets
+		//createStack(PxTransform(PxVec3(0, stackY += 10.0f, 0), random_quaternion()), 10, 2.0f);
+		//PxQuat(x * s, y * s, z * s, w * s);
+		//createStack(PxTransform(PxVec3(0, stackY += 10.0f, 0), PxQuat(0.0f, 0.0f, 0.0f, 0.0f)));
+	}
+
+
+
 	//{
 	//	shape->setContactOffset(0.02f);
 	//	// A negative rest offset helps to avoid jittering when the deformed mesh moves away from objects resting on it.
 	//	shape->setRestOffset(-0.5f);
 	//}
 
-	groundMesh->attachShape(*shape);
-	gScene->addActor(*groundMesh);
 
-	createStack(PxTransform(PxVec3(0,22,0)), 10, 30.0f);
+	//createStack(PxTransform(PxVec3(0,22,0)), 10, 30.0f);
 }
 
 void stepPhysics(bool /*interactive*/)
 {
 	{
-		std::cout << "STEP : " << std::endl;
+		//std::cout << "STEP : " << std::endl;
 		//PxVec3* verts = gMesh->getVerticesForModification();
-		gTime += 0.01f;
+		//gTime += 0.01f;
 		//updateVertices(verts, sinf(gTime)*20.0f);
 		//PxBounds3 newBounds = gMesh->refitBVH();
 		//PX_UNUSED(newBounds);
 
 		// Reset filtering to tell the broadphase about the new mesh bounds.
-		gScene->resetFiltering(*gActor);
+		//gScene->resetFiltering(*gActor);
 	}
 	gScene->simulate(1.0f/60.0f);
 	gScene->fetchResults(true);

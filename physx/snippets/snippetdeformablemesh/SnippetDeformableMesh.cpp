@@ -287,13 +287,15 @@ static void createStack(const PxTransform& t, PxU32 size, PxReal halfExtent)
 	//const char* mesh_filename = "C:\\Users\\PC-B\\Documents\\Guillaume_ITB\\split_bari\\bari0.obj";
 
 
-	PxU32 num_split = 16;
+	PxU32 num_split = 44;
 	std::string mesh_filename_str;
 	std::vector<PxShape*> shapes;
 	char str_k[60];
 	for (PxU32 i = 0; i < num_split; i++) {
 		
-		sprintf(str_k, "C:\\Users\\PC-B\\Documents\\Guillaume_ITB\\split_bari\\bari%d.obj", (i));
+		//sprintf(str_k, "C:\\Users\\PC-B\\Documents\\Guillaume_ITB\\split_bari\\bari%d.obj", (i+1));
+		sprintf(str_k, "C:\\Users\\PC-B\\Documents\\Guillaume_ITB\\test\\Shape_convex_%d.obj", (i+1));
+
 		mesh_filename_str = str_k;
 		const char* mesh_filename = mesh_filename_str.c_str();
 
